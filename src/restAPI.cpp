@@ -1,7 +1,9 @@
-#include "../inc/restAPI.h"
-#include "../inc/device.h"
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
+
+#include "../inc/restAPI.h"
+#include "../inc/device.h"
+
 
 ESP8266WebServer _server(80);
 

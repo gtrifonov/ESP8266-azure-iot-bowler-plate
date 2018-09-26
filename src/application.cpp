@@ -1,43 +1,70 @@
-#include "../inc/application.h"
-
 
 //needed for library
 #include <WiFiManager.h> //https://github.com/tzapu/WiFiManager
+
 #include "../inc/restAPI.h"
+#include "../inc/DevKitMQTTClient.h"
+#include "../inc/application.h"
 
 RestApiController rest;
+
+// Times before 2010 (1970 + 40 years) are invalid
+#define MIN_EPOCH 40 * 365 * 24 * 3600
 
 bool ApplicationController::initialize()
 {
   Serial.begin(9600);
+  Serial.setDebugOutput(true);
+
+  time_t epochTime;
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.windows.com");
+
+  while (true)
+  {
+    epochTime = time(NULL);
+
+    if (epochTime < MIN_EPOCH)
+    {
+      Serial.println("Fetching NTP epoch time failed! Waiting 2 seconds to retry.");
+      delay(2000);
+    }
+    else
+    {
+      Serial.print("Fetched NTP epoch time is: ");
+      Serial.println(epochTime);
+      break;
+    }
+  }
+  
+
   //WiFiManager
   //Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wifiManager;
-  //reset saved settings
-  //wifiManager.resetSettings();
-
-  //set custom ip for portal
-  //wifiManager.setAPStaticIPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
-
-  //fetches ssid and pass from eeprom and tries to connect
-  //if it does not connect it starts an access point with the specified name
-  //here  "AutoConnectAP"
-  //and goes into a blocking loop awaiting configuration
-  //wifiManager.setConfigPortalTimeout(180);
-  wifiManager.autoConnect("GEOTRIAC");
+  wifiManager.autoConnect();
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-  //or use this for auto generated name ESP + ChipID
-  //wifiManager.autoConnect();
-
   //if you get here you have connected to the WiFi
   Serial.println("connected...yeey :)");
+
+
   rest.registerRoutes();
   Serial.println("HTTP server started");
+
+  if (DevKitMQTTClient_Init(true) == true)
+  {
+    Serial.println("Connected to Azure Iot Hub");
+    return true;
+  }
+  else
+  {
+    Serial.println("Azure Iot Hub connection failed");
+    return false;
+  }
 }
 
 bool ApplicationController::loop()
 {
   rest.handleClient();
+  DevKitMQTTClient_DoWork();
   delay(50);
 }
