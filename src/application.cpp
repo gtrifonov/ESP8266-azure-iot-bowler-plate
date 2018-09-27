@@ -1,10 +1,11 @@
 
 //needed for library
 #include <WiFiManager.h> //https://github.com/tzapu/WiFiManager
-
+#include <Arduino.h>
 #include "../inc/restAPI.h"
 #include "../inc/DevKitMQTTClient.h"
 #include "../inc/application.h"
+#include "../inc/device.h"
 
 RestApiController rest;
 
@@ -15,6 +16,8 @@ bool ApplicationController::initialize()
 {
   Serial.begin(9600);
   Serial.setDebugOutput(true);
+
+  Device::initialize();
 
   time_t epochTime;
   configTime(0, 0, "pool.ntp.org", "time.nist.gov", "time.windows.com");

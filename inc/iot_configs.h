@@ -9,7 +9,7 @@
  * String containing Hostname, Device Id & Device Key in the format:
  *  "HostName=<host_name>;DeviceId=<device_id>;SharedAccessKey=<device_key>"    
  */
-#define IOT_CONFIG_CONNECTION_STRING   = "HostName=<host_name>;DeviceId=<device_id>;SharedAccessKey=<device_key>"; 
+#define IOT_CONFIG_CONNECTION_STRING    "HostName=<host_name>;DeviceId=<device_id>;SharedAccessKey=<device_key>"; 
 
 /** 
  * Choose the transport protocol

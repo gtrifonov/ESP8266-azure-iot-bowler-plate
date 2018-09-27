@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <EEPROM.h>
 #include <AzureIoTHub.h>
+#include <Arduino.h>
 
 #include "../inc/iot_configs.h"
  // TODO: remove device specific code once callbacks are done
@@ -88,8 +89,6 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOT
 
             /* Some device specific action code goes here... */
             Device::beep();
-            //Green Led
-            Device::setLed(1, 1);
             /* End of device specific code */
             
         }

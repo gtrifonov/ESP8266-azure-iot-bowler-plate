@@ -2,6 +2,8 @@
 #include "Arduino.h"
 
 int SPEAKERPIN = 13;
+int REDLEDPIN = 0;
+int BLUELEDPIN = 2;
 int leds[] = {14, 12, 15, 16};
 int ledStates[] = {LOW, LOW, LOW, LOW};
 
@@ -15,6 +17,11 @@ bool Device::initialize()
 {
 
     pinMode(SPEAKERPIN, OUTPUT);
+    pinMode(BLUELEDPIN, OUTPUT);    
+    pinMode(REDLEDPIN, OUTPUT);
+    setRedLed(LOW);
+    setBlueLed(LOW);
+
     for (int i; i = 0; i < Device::LED_ARRAY_SIZE + 1)
     {
         pinMode(ledStates[i], OUTPUT);
@@ -33,6 +40,13 @@ bool Device::setLed(int index, int status)
 int Device::getLed(int index)
 {
     return ledStates[index];
+}
+
+bool Device::setRedLed(int status){
+    digitalWrite(REDLEDPIN, status);
+}
+bool Device::setBlueLed(int status){    
+    digitalWrite(BLUELEDPIN, status);
 }
 
 void Device::beep()
