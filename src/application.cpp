@@ -2,6 +2,7 @@
 //needed for library
 #include <WiFiManager.h> //https://github.com/tzapu/WiFiManager
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include "../inc/restAPI.h"
 #include "../inc/DevKitMQTTClient.h"
 #include "../inc/application.h"
@@ -11,6 +12,41 @@ RestApiController rest;
 
 // Times before 2010 (1970 + 40 years) are invalid
 #define MIN_EPOCH 40 * 365 * 24 * 3600
+
+
+static long motionStarted = 0;
+static long motionEnded = 0;
+static void motionDetected(){
+  motionStarted = millis();
+ StaticJsonBuffer<200> jsonBuffer;
+    JsonObject &jsonObj = jsonBuffer.createObject();
+    char JSONmessageBuffer[200];
+    jsonObj["event"] = "motionDetected";
+    jsonObj["started"] = motionStarted;
+    jsonObj.prettyPrintTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+
+  Serial.println("Sending event to iot hub");
+  boolean result = DevKitMQTTClient_SendEvent(JSONmessageBuffer);
+  Serial.println(result);
+}
+
+static void motionStopped(){
+  motionEnded = millis();
+  long duration = motionEnded - motionStarted;
+
+  StaticJsonBuffer<200> jsonBuffer;
+    JsonObject &jsonObj = jsonBuffer.createObject();
+    char JSONmessageBuffer[200];
+    jsonObj["event"] = "motionStopped";    
+    jsonObj["started"] = motionStarted;
+    jsonObj["ended"] = motionEnded;
+    jsonObj["duration"] = duration;
+    jsonObj.prettyPrintTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
+
+  Serial.println("Sending event to iot hub");
+  boolean result = DevKitMQTTClient_SendEvent(JSONmessageBuffer);
+  Serial.println(result);
+}
 
 bool ApplicationController::initialize()
 {
@@ -52,6 +88,9 @@ bool ApplicationController::initialize()
 
   rest.registerRoutes();
   Serial.println("HTTP server started");
+  
+  Device::registerMotionStartedCallBack(motionDetected);
+  Device::registerMotionEndedCallBack(motionStopped);
 
   if (DevKitMQTTClient_Init(true) == true)
   {
@@ -69,5 +108,6 @@ bool ApplicationController::loop()
 {
   rest.handleClient();
   DevKitMQTTClient_DoWork();
+  Device::detectMotion();
   delay(50);
 }

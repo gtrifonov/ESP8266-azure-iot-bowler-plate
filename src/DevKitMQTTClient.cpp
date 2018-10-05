@@ -5,9 +5,10 @@
 #include <EEPROM.h>
 #include <AzureIoTHub.h>
 #include <Arduino.h>
+#include <ESP8266WiFi.h>
 
 #include "../inc/iot_configs.h"
- // TODO: remove device specific code once callbacks are done
+// TODO: remove device specific code once callbacks are done
 #include "../inc/device.h"
 #include "../inc/DevKitMQTTClient.h"
 
@@ -43,6 +44,40 @@ static uint64_t iothub_check_ms;
 
 static char *iothub_hostname = NULL;
 
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Utilities
+static long time_now;
+
+static void wait_ms(int period) {
+    time_now = millis();
+   
+    Serial.printf("waiting %d /n/r", period);
+   
+    while(millis() < time_now + period){
+        //wait approx. [period] ms
+    }
+}
+
+static void CheckConnection()
+{
+    if (resetClient)
+    {
+        if (WiFi.status() != WL_CONNECTED)
+        {
+            LogInfo(">>>No Wi-Fi.");
+        }
+        else
+        {
+            LogInfo(">>>Re-connect.");
+            // Re-connect the IoT Hub
+            DevKitMQTTClient_Close();
+            DevKitMQTTClient_Init(enableDeviceTwin);
+            resetClient = false;
+        }
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Event handlers
 static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOTHUB_CLIENT_CONNECTION_STATUS_REASON reason, void *userContextCallback)
@@ -60,15 +95,19 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOT
         }
         break;
     case IOTHUB_CLIENT_CONNECTION_DEVICE_DISABLED:
+        Device::setRedLed(HIGH);
         printf(">>>Connection status: IOTHUB_CLIENT_CONNECTION_DEVICE_DISABLED.\r\n");
         break;
     case IOTHUB_CLIENT_CONNECTION_BAD_CREDENTIAL:
+        Device::setRedLed(HIGH);
         printf(">>>Connection status: IOTHUB_CLIENT_CONNECTION_BAD_CREDENTIAL.\r\n");
         break;
     case IOTHUB_CLIENT_CONNECTION_RETRY_EXPIRED:
+        Device::setRedLed(HIGH);
         printf(">>>Connection status: IOTHUB_CLIENT_CONNECTION_RETRY_EXPIRED.\r\n");
         break;
     case IOTHUB_CLIENT_CONNECTION_NO_NETWORK:
+        Device::setRedLed(HIGH);
         printf(">>>Connection status: IOTHUB_CLIENT_CONNECTION_NO_NETWORK.\r\n");
         if (result == IOTHUB_CLIENT_CONNECTION_UNAUTHENTICATED)
         {
@@ -77,6 +116,7 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOT
         }
         break;
     case IOTHUB_CLIENT_CONNECTION_COMMUNICATION_ERROR:
+        Device::setRedLed(HIGH);
         printf(">>>Connection status: IOTHUB_CLIENT_CONNECTION_COMMUNICATION_ERROR.\r\n");
         break;
     case IOTHUB_CLIENT_CONNECTION_OK:
@@ -87,10 +127,10 @@ static void ConnectionStatusCallback(IOTHUB_CLIENT_CONNECTION_STATUS result, IOT
             clientConnected = true;
             printf(">>>Connection status: connected.\r\n");
 
-            /* Some device specific action code goes here... */
-            Device::beep();
+            /* Some device specific action code goes here... */            
+            Device::blink(Device::REDLEDPIN, 500, 5);
+            Device::setRedLed(LOW);
             /* End of device specific code */
-            
         }
         break;
     }
@@ -158,9 +198,9 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT ReceiveMessageCallback(IOTHUB_MESSAGE_HA
         free(temp);
     }
 
-    // TODO: remove device specific code once callbacks are done 
+    // TODO: remove device specific code once callbacks are done
     /* Some device specific action code goes here... */
-    Device::beep();
+    Device::blink(Device::BLUELEDPIN, 500, 5);
     /* End of device specific code */
 
     (*counter)++;
@@ -169,8 +209,9 @@ static IOTHUBMESSAGE_DISPOSITION_RESULT ReceiveMessageCallback(IOTHUB_MESSAGE_HA
 
 static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsigned char *payLoad, size_t size, void *userContextCallback)
 {
-     // TODO: remove device specific code once callbacks are done
-    Device::beep();
+    // TODO: remove device specific code once callbacks are done
+    
+    Device::blink(Device::BLUELEDPIN, 500, 5);
     if (_device_twin_callback)
     {
         _device_twin_callback(updateState, payLoad, size);
@@ -182,8 +223,8 @@ static void DeviceTwinCallback(DEVICE_TWIN_UPDATE_STATE updateState, const unsig
 
 static int DeviceMethodCallback(const char *methodName, const unsigned char *payload, size_t size, unsigned char **response, size_t *response_size, void *userContextCallback)
 {
-     // TODO: remove device specific code once callbacks are done
-    Device::beep();
+    // TODO: remove device specific code once callbacks are done
+    Device::blink(Device::BLUELEDPIN, 500, 5);
     if (_device_method_callback)
     {
         return _device_method_callback(methodName, payload, size, response, (int *)response_size);
@@ -222,7 +263,88 @@ static void ReportConfirmationCallback(int statusCode, void *userContextCallback
     }
 }
 
-// TODO: add timeout 
+
+static bool SendEventOnce(EVENT_INSTANCE *event)
+{
+    if (iotHubClientHandle == NULL || event == NULL)
+    {
+        return false;
+    }
+
+    if (WiFi.status() == 0)
+    {
+        return false;
+    }
+
+    event->trackingId = trackingId++;
+    currentTrackingId = event->trackingId;
+
+    uint64_t start_ms = millis();
+
+    CheckConnection();
+    wait_ms(1000);
+
+    if (event->type == MESSAGE)
+    {
+        if (IoTHubClient_LL_SendEventAsync(iotHubClientHandle, event->messageHandle, SendConfirmationCallback, event) != IOTHUB_CLIENT_OK)
+        {
+            LogError("IoTHubClient_LL_SendEventAsync..........FAILED!");
+            IoTHubMessage_Destroy(event->messageHandle);
+            free(event);
+            wait_ms(1000);
+            return false;
+        }
+        LogInfo(">>>IoTHubClient_LL_SendEventAsync accepted message for transmission to IoT Hub.");
+        wait_ms(1000);
+    }
+    else if (event->type == STATE)
+    {
+        if (IoTHubClient_LL_SendReportedState(iotHubClientHandle, (const unsigned char*)event->stateString, strlen(event->stateString), ReportConfirmationCallback, event) != IOTHUB_CLIENT_OK)
+        {
+            LogError("IoTHubClient_LL_SendReportedState..........FAILED!");
+            IoTHubMessage_Destroy(event->messageHandle);
+            free(event);
+            return false;
+        }
+        LogInfo(">>>IoTHubClient_LL_SendReportedState accepted state for transmission to IoT Hub.");
+    }
+
+    while(true)
+    {
+        IoTHubClient_LL_DoWork(iotHubClientHandle);
+        
+        if (currentTrackingId == EVENT_CONFIRMED)
+        {
+            // IoT Hub got this event
+            return true;
+        }
+        
+        // Check timeout
+        int diff = (int)(millis() - start_ms);
+        if (diff >= EVENT_TIMEOUT_MS)
+        {
+            // Time out, reset the client
+            LogError("Waiting for send confirmation, time is up %d", diff);
+            resetClient = true;
+        }
+
+        if (resetClient)
+        {
+            // resetClient also can be set as true in the IoTHubClient_LL_DoWork
+            // Disconnected, re-send the message
+            break;
+        }
+        else
+        {
+            // Sleep a while
+            ThreadAPI_Sleep(100);
+        }
+    }
+    
+    return false;
+}
+
+// TODO: add timeout
 bool DevKitMQTTClient_Init(bool hasDeviceTwin)
 {
 
@@ -285,8 +407,8 @@ bool DevKitMQTTClient_Init(bool hasDeviceTwin)
         }
     }
 
-    // TODO: add CONNECT_TIMEOUT_MS logic
-    int wait_count = 0;
+    // Waiting for the confirmation 
+    uint64_t start_ms = millis();
     while (true)
     {
         IoTHubClient_LL_DoWork(iotHubClientHandle);
@@ -294,18 +416,191 @@ bool DevKitMQTTClient_Init(bool hasDeviceTwin)
         {
             break;
         }
-        
-        if (wait_count >= 1000)
+        int diff = (int)(millis() - start_ms);
+        if (diff >= CONNECT_TIMEOUT_MS)
         {
             // Time out, reset the client
             resetClient = true;
             return false;
         }
         ThreadAPI_Sleep(500);
-        wait_count++;
     }
     
     return true;
+}
+
+EVENT_INSTANCE* DevKitMQTTClient_Event_Generate(const char *eventString, EVENT_TYPE type)
+{
+    if (eventString == NULL)
+    {
+        return NULL;
+    }
+
+    EVENT_INSTANCE *event = (EVENT_INSTANCE*)malloc(sizeof(EVENT_INSTANCE));
+    event->type = type;
+
+    if (type == MESSAGE)
+    {
+        event->messageHandle = IoTHubMessage_CreateFromByteArray((const unsigned char*)eventString, strlen(eventString));
+        if (event->messageHandle == NULL)
+        {
+            LogError("iotHubMessageHandle is NULL!");
+            free(event);
+            return NULL;
+        }
+    }
+
+    if (type == STATE)
+    {
+        event->stateString = eventString;
+    }
+
+    return event;
+}
+
+void DevKitMQTTClient_Event_AddProp(EVENT_INSTANCE *message, const char *key, const char *value)
+{
+    if (message == NULL || key == NULL) return;
+    MAP_HANDLE propMap = IoTHubMessage_Properties(message->messageHandle);
+    Map_AddOrUpdate(propMap, key, value);
+}
+
+bool DevKitMQTTClient_SendEvent(const char *text)
+{
+    if (text == NULL)
+    {
+        return false;
+    }
+    for (int i = 0; i < SEND_EVENT_RETRY_COUNT; i++)
+    {
+        if (SendEventOnce(DevKitMQTTClient_Event_Generate(text, MESSAGE)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DevKitMQTTClient_ReceiveEvent()
+{
+    CheckConnection();
+    
+    int count = receiveContext;
+    uint64_t tm =  millis();
+    while((int)(millis() - tm) < CHECK_INTERVAL_MS)
+    {
+        IoTHubClient_LL_DoWork(iotHubClientHandle);
+        if (count < receiveContext)
+        {
+            return true;
+        }
+
+        if (resetClient || WiFi.status() != WL_CONNECTED)
+        {
+            // Disconnected
+            return false;
+        }
+
+        ThreadAPI_Sleep(500);
+    }
+    // Timeout
+    resetClient = true;
+    return false;
+}
+
+bool DevKitMQTTClient_ReportState(const char *stateString)
+{
+    if (stateString == NULL)
+    {
+        return false;
+    }
+    for (int i = 0; i < SEND_EVENT_RETRY_COUNT; i++)
+    {
+        if (SendEventOnce(DevKitMQTTClient_Event_Generate(stateString, STATE)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DevKitMQTTClient_SendEventInstance(EVENT_INSTANCE *event)
+{
+    if (event == NULL)
+    {
+        return false;
+    }
+
+    return SendEventOnce(event);
+}
+
+void DevKitMQTTClient_Check(bool hasDelay)
+{
+    if (iotHubClientHandle == NULL || WiFi.status() != WL_CONNECTED)
+    {
+        return;
+    }
+
+    int diff = hasDelay ? ((int)(millis() - iothub_check_ms)) : CHECK_INTERVAL_MS;
+    if (diff >= CHECK_INTERVAL_MS)
+    {
+        CheckConnection();
+        for (int i = 0; i < 5; i++)
+        {
+            IoTHubClient_LL_DoWork(iotHubClientHandle);
+            if (resetClient || WiFi.status() != WL_CONNECTED)
+            {
+                // Disconnected
+                break;
+            }
+        }
+        iothub_check_ms = millis();
+    }
+}
+
+void DevKitMQTTClient_Close(void)
+{
+    if (iotHubClientHandle != NULL)
+    {
+        IoTHubClient_LL_Destroy(iotHubClientHandle);
+        iotHubClientHandle = NULL;
+    }
+}
+
+void DevKitMQTTClient_SetConnectionStatusCallback(CONNECTION_STATUS_CALLBACK connection_status_callback)
+{
+    _connection_status_callback = connection_status_callback;
+}
+
+void DevKitMQTTClient_SetSendConfirmationCallback(SEND_CONFIRMATION_CALLBACK send_confirmation_callback)
+{
+    _send_confirmation_callback = send_confirmation_callback;
+}
+
+void DevKitMQTTClient_SetMessageCallback(MESSAGE_CALLBACK message_callback)
+{
+    _message_callback = message_callback;
+}
+
+void DevKitMQTTClient_SetDeviceTwinCallback(DEVICE_TWIN_CALLBACK device_twin_callback)
+{
+    _device_twin_callback = device_twin_callback;
+}
+
+void DevKitMQTTClient_SetDeviceMethodCallback(DEVICE_METHOD_CALLBACK device_method_callback)
+{
+    _device_method_callback = device_method_callback;
+}
+
+void DevKitMQTTClient_SetReportConfirmationCallback(REPORT_CONFIRMATION_CALLBACK report_confirmation_callback)
+{
+    _report_confirmation_callback = report_confirmation_callback;
+}
+
+void DevKitMQTTClient_Reset(void)
+{
+    resetClient = true;
+    CheckConnection();
 }
 void DevKitMQTTClient_DoWork()
 {
